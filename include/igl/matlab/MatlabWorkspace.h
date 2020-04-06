@@ -29,10 +29,82 @@ namespace igl
     // This depends on matlab at compile time (though it shouldn't necessarily
     // have to) but it does not depend on running the matlab engine at run-time.
     //
-    // Known bugs: Treats all matrices as doubles (this may actually be desired
-    // for some "index" matrices since matlab's sparse command takes doubles
+    // Known bugs: Can't work with SparseMatrices of integral elements 
+    //  matlab's sparse command takes doubles
     // rather than int class matrices). It is of course not desired when dealing
     // with logicals or uint's for images.
+
+	  template<typename T>
+	  struct traits;
+
+	  template<>
+	  struct traits<double>
+	  {
+		  typedef double  type;
+		  typedef mxDouble  mxtype;
+		  static constexpr mxClassID mxClass = mxDOUBLE_CLASS;
+		  static constexpr mxDouble* (*GetPr)(const mxArray *pa) = &mxGetDoubles; //mxDouble *mxGetDoubles(const mxArray *pa);
+		  static constexpr int (*SetPr)(mxArray *pa, mxDouble *dt) = &mxSetDoubles;//int mxSetDoubles(mxArray *pa, mxDouble *dt);
+		  static constexpr mxComplexity Complexity = mxComplexity::mxREAL;
+	  };
+
+	  template<>
+	  struct traits<int>
+	  {
+		  typedef int  type;
+		  typedef mxInt32  mxtype;
+
+		  static constexpr mxClassID mxClass = mxINT32_CLASS;
+		  static constexpr mxInt32* (*GetPr)(const mxArray *pa) = &mxGetInt32s; //mxDouble *mxGetDoubles(const mxArray *pa);
+		  static constexpr int(*SetPr)(mxArray *pa, mxInt32 *dt) = &mxSetInt32s;//int mxSetDoubles(mxArray *pa, mxDouble *dt);
+		  static constexpr mxComplexity Complexity = mxComplexity::mxREAL;
+	  };
+
+	  template<>
+	  struct traits<long> : traits<int>
+	  {
+		  static_assert(sizeof(int) == sizeof(long), "is sizeof(long) is not the same as sizeof(int)? ");
+	  };
+
+	  template<>
+	  struct traits<long long>
+	  {
+		  typedef long long  type;
+		  typedef mxInt32  mxtype;
+
+		  // if(sizeof(T)==sizeof(mxInt32))
+
+		  static constexpr mxClassID mxClass = mxINT64_CLASS;
+		  static constexpr mxInt64* (*GetPr)(const mxArray *pa) = &mxGetInt64s; //mxDouble *mxGetDoubles(const mxArray *pa);
+		  static constexpr int(*SetPr)(mxArray *pa, mxInt64 *dt) = &mxSetInt64s;//int mxSetDoubles(mxArray *pa, mxDouble *dt);
+		  static constexpr mxComplexity Complexity = mxComplexity::mxREAL;
+	  };
+
+
+	  template<>
+	  struct traits<std::complex<double>>
+	  {
+		  typedef std::complex<double>  type;
+		  typedef mxComplexDouble  mxtype;
+		  static constexpr mxClassID mxClass = mxDOUBLE_CLASS;
+		  static constexpr mxComplexDouble* (*GetPr)(const mxArray *pa) = &mxGetComplexDoubles; //mxComplexDouble *mxGetComplexDoubles(const mxArray *pa);
+		  static constexpr int (*SetPr)(mxArray *pa, mxComplexDouble *dt) = &mxSetComplexDoubles; //int mxSetComplexDoubles(mxArray *pa, mxComplexDouble *dt);
+
+		  static constexpr mxComplexity Complexity = mxComplexity::mxCOMPLEX;
+	  };
+
+// 	  template<typename T>
+// 	  struct traits< Eigen::EigenBase<T>> : traits<typename Eigen::EigenBase<T>::Scalar>
+// 	  {
+// 		  static inline const char* name() { return typeid(T).name(); }
+// 	  };
+
+	  template<typename T>
+	  struct traits : traits<typename Eigen::internal::traits<T>::Scalar>
+	  {
+		  static inline const char* name() { return typeid(T).name(); }
+	  };
+
     class MatlabWorkspace
     {
       private:
@@ -75,9 +147,9 @@ namespace igl
           const std::string & name);
         // Template:
         //   MT  sparse matrix type (e.g. double)
-        template <typename MT>
+        template < typename _Scalar, int _Options, typename _StorageIndex>
         inline MatlabWorkspace& save(
-          const Eigen::SparseMatrix<MT>& M,
+          const Eigen::SparseMatrix<_Scalar, _Options, _StorageIndex>& M,
           const std::string & name);
         // Templates:
         //   ScalarM  scalar type, e.g. double
@@ -133,13 +205,16 @@ namespace igl
         inline bool find( 
           const std::string & name,
           Eigen::PlainObjectBase<DerivedM>& M);
-        template <typename MT>
+        template < typename _Scalar, int _Options, typename _StorageIndex>
         inline bool find( 
           const std::string & name,
-          Eigen::SparseMatrix<MT>& M);
+          Eigen::SparseMatrix< _Scalar, _Options, _StorageIndex>& M);
         inline bool find( 
           const std::string & name,
           double & d);
+		inline bool find(
+			const std::string & name,
+			std::complex<double> & cd);
         inline bool find( 
           const std::string & name,
           int & v);
@@ -219,121 +294,134 @@ inline bool igl::matlab::MatlabWorkspace::write(const std::string & path) const
 
 inline bool igl::matlab::MatlabWorkspace::read(const std::string & path)
 {
-  using namespace std;
+	using namespace std;
 
-  MATFile * mat_file;
+	MATFile * mat_file;
 
-  mat_file = matOpen(path.c_str(), "r");
-  if (mat_file == NULL) 
-  {
-    cerr<<"Error: failed to open "<<path<<endl;
-    return false;
-  }
+	mat_file = matOpen(path.c_str(), "r");
+	if (mat_file == NULL)
+	{
+		cerr << "Error: failed to open " << path << endl;
+		return false;
+	}
 
-  int ndir;
-  const char ** dir = (const char **)matGetDir(mat_file, &ndir);
-  if (dir == NULL) {
-    cerr<<"Error reading directory of file "<< path<<endl;
-    return false;
-  }
-  mxFree(dir);
+	int ndir;
+	const char ** dir = (const char **)matGetDir(mat_file, &ndir);
+	if (dir == NULL) {
+		cerr << "Error reading directory of file " << path << endl;
+		return false;
+	}
+	mxFree(dir);
 
-  // Must close and reopen
-  if(matClose(mat_file) != 0)
-  {
-    cerr<<"Error: failed to close file "<<path<<endl;
-    return false;
-  }
-  mat_file = matOpen(path.c_str(), "r");
-  if (mat_file == NULL) 
-  {
-    cerr<<"Error: failed to open "<<path<<endl;
-    return false;
-  }
-  
+	// Must close and reopen
+	if (matClose(mat_file) != 0)
+	{
+		cerr << "Error: failed to close file " << path << endl;
+		return false;
+	}
+	mat_file = matOpen(path.c_str(), "r");
+	if (mat_file == NULL)
+	{
+		cerr << "Error: failed to open " << path << endl;
+		return false;
+	}
 
-  /* Read in each array. */
-  for (int i=0; i<ndir; i++) 
-  {
-    const char * name;
-    mxArray * mx_data = matGetNextVariable(mat_file, &name);
-    if (mx_data == NULL) 
-    {
-      cerr<<"Error: matGetNextVariable failed in "<<path<<endl;
-      return false;
-    } 
-    const int dims = mxGetNumberOfDimensions(mx_data);
-    assert(dims == 2);
-    if(dims != 2)
-    {
-      fprintf(stderr,"Variable '%s' has %d ≠ 2 dimensions. Skipping\n",
-          name,dims);
-      mxDestroyArray(mx_data);
-      continue;
-    }
-    // don't destroy
-    names.push_back(name);
-    data.push_back(mx_data);
-  }
 
-  if(matClose(mat_file) != 0)
-  {
-    cerr<<"Error: failed to close file "<<path<<endl;
-    return false;
-  }
+	/* Read in each array. */
+	for (int i = 0; i < ndir; i++)
+	{
+		const char * name;
+		mxArray * mx_data = matGetNextVariable(mat_file, &name);
+		if (mx_data == NULL)
+		{
+			cerr << "Error: matGetNextVariable failed in " << path << endl;
+			return false;
+		}
+		const auto dims = mxGetNumberOfDimensions(mx_data);
+		assert(dims == 2);
+		if (dims != 2)
+		{
+			std::cerr << "Variable " << name << " has " << dims << " ≠ 2 dimensions. Skipping\n";
+			mxDestroyArray(mx_data);
+			continue;
+		}
+		// don't destroy
+		names.push_back(name);
+		data.push_back(mx_data);
+	}
 
-  return true;
+	if (matClose(mat_file) != 0)
+	{
+		cerr << "Error: failed to close file " << path << endl;
+		return false;
+	}
+
+	return true;
 }
 
-// Treat everything as a double
 template <typename DerivedM>
 inline igl::matlab::MatlabWorkspace& igl::matlab::MatlabWorkspace::save(
   const Eigen::PlainObjectBase<DerivedM>& M,
   const std::string & name)
 {
-  using namespace std;
-  const int m = M.rows();
-  const int n = M.cols();
-  mxArray * mx_data = mxCreateDoubleMatrix(m,n,mxREAL);
+	using namespace std;
+	using Minfo = traits<DerivedM>;
+	
+  const auto m = M.rows();
+  const auto n = M.cols();
+  mxArray * mx_data = mxCreateNumericMatrix(m, n,  Minfo::mxClass,Minfo::Complexity);//mxCreateDoubleMatrix(m, n, Minfo::Complexity);
   data.push_back(mx_data);
   names.push_back(name);
   // Copy data immediately
   // Use Eigen's map and cast to copy
-  Eigen::Map< Eigen::Matrix<double,Eigen::Dynamic,Eigen::Dynamic> > 
-    map(mxGetPr(mx_data),m,n);
-  map = M.template cast<double>();
+
+
+  Eigen::Map< Eigen::Matrix<Minfo::type,Eigen::Dynamic,Eigen::Dynamic> >
+    map(reinterpret_cast<typename Minfo::type*>(Minfo::GetPr(mx_data) ),m,n);
+  map = M.template cast<Minfo::type>();
   return *this;
 }
 
-// Treat everything as a double
-template <typename MT>
+template < typename _Scalar, int _Options, typename _StorageIndex>
 inline igl::matlab::MatlabWorkspace& igl::matlab::MatlabWorkspace::save(
-  const Eigen::SparseMatrix<MT>& M,
+  const Eigen::SparseMatrix<_Scalar,_Options,_StorageIndex>& M,
   const std::string & name)
 {
   using namespace std;
-  const int m = M.rows();
-  const int n = M.cols();
+
+  using MT = _Scalar;// _SM<_Scalar, _Options, _StorageIndex>;
+
+  using Minfo = traits<MT>;
+
+
+  const auto m = M.rows();
+  const auto n = M.cols();
   // THIS WILL NOT WORK FOR ROW-MAJOR
   assert(n==M.outerSize());
-  const int nzmax = M.nonZeros();
-  mxArray * mx_data = mxCreateSparse(m, n, nzmax, mxREAL);
+  const auto nzmax = M.nonZeros();
+  mxArray * mx_data = mxCreateSparse(m, n, nzmax, Minfo::Complexity); 
   data.push_back(mx_data);
   names.push_back(name);
   // Copy data immediately
-  double * pr = mxGetPr(mx_data);
+  auto * pr = Minfo::GetPr(mx_data);
   mwIndex * ir = mxGetIr(mx_data);
   mwIndex * jc = mxGetJc(mx_data);
 
   // Iterate over outside
-  int k = 0;
+  auto k = 0;
   for(int j=0; j<M.outerSize();j++)
   {
     jc[j] = k;
     // Iterate over inside
-    for(typename Eigen::SparseMatrix<MT>::InnerIterator it (M,j); it; ++it)
+    for(typename Eigen::SparseMatrix<_Scalar, _Options, _StorageIndex>::InnerIterator it (M,j); it; ++it)
     {
-      pr[k] = it.value();
+
+// 		typename Minfo::type* dynamicData = (typename Minfo::type*)mxMalloc(sizeof(Minfo::type));
+// 		dynamicData[0] = it.value();
+// 		pr[k] = *(typename Minfo::mxtype*)dynamicData;
+
+		*((typename Minfo::type*)&pr[k]) = it.value();
+
       ir[k] = it.row();
       k++;
     }
@@ -422,18 +510,21 @@ inline bool igl::matlab::MatlabWorkspace::find(
   Eigen::PlainObjectBase<DerivedM>& M)
 {
   using namespace std;
-  const int i = std::find(names.begin(), names.end(), name)-names.begin();
-  if(i>=(int)names.size())
+  using Minfo = traits < DerivedM::Scalar > ;
+
+
+  const size_t i = std::distance(names.begin(), std::find(names.begin(), names.end(), name));
+  if(i>=(signed)names.size())
   {
     return false;
   }
-  assert(i<=(int)data.size());
+  assert(i<=data.size());
   mxArray * mx_data = data[i];
   assert(!mxIsSparse(mx_data));
   assert(mxGetNumberOfDimensions(mx_data) == 2);
   //cout<<name<<": "<<mxGetM(mx_data)<<" "<<mxGetN(mx_data)<<endl;
-  const int m = mxGetM(mx_data);
-  const int n = mxGetN(mx_data);
+  const auto m = mxGetM(mx_data);
+  const auto n = mxGetN(mx_data);
   // Handle vectors: in the sense that anything found becomes a column vector,
   // whether it was column vector, row vector or matrix
   if(DerivedM::IsVectorAtCompileTime)
@@ -446,24 +537,27 @@ inline bool igl::matlab::MatlabWorkspace::find(
   }
   assert(mxGetNumberOfElements(mx_data) == M.size());
   // Use Eigen's map and cast to copy
-  M = Eigen::Map< Eigen::Matrix<double,Eigen::Dynamic,Eigen::Dynamic> > 
-    (mxGetPr(mx_data),M.rows(),M.cols()).cast<typename DerivedM::Scalar>();
+  M = Eigen::Map< Eigen::Matrix<typename Minfo::type, Eigen::Dynamic, Eigen::Dynamic> >
+	  (reinterpret_cast<typename Minfo::type*>(Minfo::GetPr(mx_data)), M.rows(), M.cols());
+  M.cast<typename DerivedM::Scalar>();
   return true;
 }
 
-template <typename MT>
+template < typename _Scalar, int _Options, typename _StorageIndex>
 inline bool igl::matlab::MatlabWorkspace::find( 
   const std::string & name,
-  Eigen::SparseMatrix<MT>& M)
+  Eigen::SparseMatrix<_Scalar, _Options,_StorageIndex>& M)
 {
   using namespace std;
   using namespace Eigen;
-  const int i = std::find(names.begin(), names.end(), name)-names.begin();
-  if(i>=(int)names.size())
+  using MT = _Scalar;
+  using Minfo = traits<MT>;
+  const size_t i = std::distance(names.begin(), std::find(names.begin(), names.end(), name));
+  if(i>=(signed)names.size())
   {
     return false;
   }
-  assert(i<=(int)data.size());
+  assert(i<=data.size());
   mxArray * mx_data = data[i];
   // Handle boring case where matrix is actually an empty dense matrix
   if(mxGetNumberOfElements(mx_data) == 0)
@@ -474,28 +568,28 @@ inline bool igl::matlab::MatlabWorkspace::find(
   assert(mxIsSparse(mx_data));
   assert(mxGetNumberOfDimensions(mx_data) == 2);
   //cout<<name<<": "<<mxGetM(mx_data)<<" "<<mxGetN(mx_data)<<endl;
-  const int m = mxGetM(mx_data);
-  const int n = mxGetN(mx_data);
+  const auto m = mxGetM(mx_data);
+  const auto n = mxGetN(mx_data);
   // TODO: It should be possible to directly load the data into the sparse
   // matrix without going through the triplets
   // Copy data immediately
-  double * pr = mxGetPr(mx_data);
+  auto * pr = Minfo::GetPr(mx_data);
   mwIndex * ir = mxGetIr(mx_data);
   mwIndex * jc = mxGetJc(mx_data);
-  vector<Triplet<MT> > MIJV;
-  const int nnz = mxGetNzmax(mx_data);
+  vector<Triplet<MT,_StorageIndex> > MIJV;
+  const auto nnz = mxGetNzmax(mx_data);
   MIJV.reserve(nnz);
   // Iterate over outside
-  int k = 0;
-  for(int j=0; j<n;j++)
+  auto k = 0;
+  for(auto j=0; j<n;j++)
   {
     // Iterate over inside
     while(k<(int)jc[j+1])
     {
       //cout<<ir[k]<<" "<<j<<" "<<pr[k]<<endl;
-      assert((int)ir[k]<m);
-      assert((int)j<n);
-      MIJV.push_back(Triplet<MT >(ir[k],j,pr[k]));
+      assert(ir[k]<m);
+      assert(j<n);
+      MIJV.push_back(Triplet<MT,_StorageIndex >((_StorageIndex)ir[k],j, *((typename Minfo::type*)&pr[k])));
       k++;
     }
   }
@@ -505,27 +599,33 @@ inline bool igl::matlab::MatlabWorkspace::find(
   return true;
 }
 
-inline bool igl::matlab::MatlabWorkspace::find( 
-  const std::string & name,
-  int & v)
+inline bool igl::matlab::MatlabWorkspace::find(
+	const std::string & name,
+	int & v)
 {
-  using namespace std;
-  const int i = std::find(names.begin(), names.end(), name)-names.begin();
-  if(i>=(int)names.size())
-  {
-    return false;
-  }
-  assert(i<=(int)data.size());
-  mxArray * mx_data = data[i];
-  assert(!mxIsSparse(mx_data));
-  assert(mxGetNumberOfDimensions(mx_data) == 2);
-  //cout<<name<<": "<<mxGetM(mx_data)<<" "<<mxGetN(mx_data)<<endl;
-  assert(mxGetNumberOfElements(mx_data) == 1);
-  copy(
-    mxGetPr(mx_data),
-    mxGetPr(mx_data)+mxGetNumberOfElements(mx_data),
-    &v);
-  return true;
+	using namespace std;
+	const size_t i = std::find(names.begin(), names.end(), name) - names.begin();
+	if (i >= names.size())
+	{
+		return false;
+	}
+	assert(i <= data.size());
+	mxArray * mx_data = data[i];
+	assert(!mxIsSparse(mx_data));
+	assert(mxGetNumberOfDimensions(mx_data) == 2);
+	//cout<<name<<": "<<mxGetM(mx_data)<<" "<<mxGetN(mx_data)<<endl;
+	assert(mxGetNumberOfElements(mx_data) == 1);
+	auto *Pr = mxGetInt32s(mx_data);
+	/*copy(
+	  mxGetPr(mx_data),
+	  mxGetPr(mx_data)+mxGetNumberOfElements(mx_data),
+	  &v);*/
+
+	copy(
+		Pr,
+		Pr + mxGetNumberOfElements(mx_data),
+		&v);
+	return true;
 }
 
 inline bool igl::matlab::MatlabWorkspace::find( 
@@ -533,22 +633,47 @@ inline bool igl::matlab::MatlabWorkspace::find(
   double & d)
 {
   using namespace std;
-  const int i = std::find(names.begin(), names.end(), name)-names.begin();
-  if(i>=(int)names.size())
+  const size_t i =std::distance(names.begin(), std::find(names.begin(), names.end(), name) );
+  if(i>=(signed)names.size())
   {
     return false;
   }
-  assert(i<=(int)data.size());
+  assert(i<= data.size());
   mxArray * mx_data = data[i];
   assert(!mxIsSparse(mx_data));
   assert(mxGetNumberOfDimensions(mx_data) == 2);
   //cout<<name<<": "<<mxGetM(mx_data)<<" "<<mxGetN(mx_data)<<endl;
   assert(mxGetNumberOfElements(mx_data) == 1);
   copy(
-    mxGetPr(mx_data),
-    mxGetPr(mx_data)+mxGetNumberOfElements(mx_data),
+    mxGetDoubles(mx_data),
+    mxGetDoubles(mx_data) + mxGetNumberOfElements(mx_data),
     &d);
   return true;
+}
+
+inline bool igl::matlab::MatlabWorkspace::find(
+	const std::string & name,
+	std::complex<double> & cd)
+{
+	using namespace std;
+	const size_t i = std::distance(names.begin(), std::find(names.begin(), names.end(), name));
+	if (i >= names.size())
+	{
+		return false;
+	}
+	assert(i <= data.size());
+	mxArray * mx_data = data[i];
+	assert(!mxIsSparse(mx_data));
+	assert(mxGetNumberOfDimensions(mx_data) == 2);
+	//cout<<name<<": "<<mxGetM(mx_data)<<" "<<mxGetN(mx_data)<<endl;
+	assert(mxGetNumberOfElements(mx_data) == 1);
+
+	auto *Pr = reinterpret_cast<std::complex<double>*>(mxGetComplexDoubles(mx_data));
+	copy(
+		Pr,
+		Pr + mxGetNumberOfElements(mx_data),
+		&cd);
+	return true;
 }
 
 template <typename DerivedM>
