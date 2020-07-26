@@ -80,8 +80,6 @@ namespace igl
 	  struct traits<long> : traits<typename MyLong<long>::type>
 	  {
 		  typedef long  type;
-
-		  static_assert(sizeof(int) == sizeof(long), "is sizeof(long) is not the same as sizeof(int)? ");
 	  };
 
 	  template<>
