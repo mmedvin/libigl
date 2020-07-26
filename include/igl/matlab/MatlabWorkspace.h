@@ -63,6 +63,8 @@ namespace igl
 	  template<>
 	  struct traits<long> : traits<int>
 	  {
+		  typedef long  type;
+
 		  static_assert(sizeof(int) == sizeof(long), "is sizeof(long) is not the same as sizeof(int)? ");
 	  };
 
@@ -70,13 +72,13 @@ namespace igl
 	  struct traits<long long>
 	  {
 		  typedef long long  type;
-		  typedef mxInt32  mxtype;
+		  typedef mxInt64  mxtype;
 
 		  // if(sizeof(T)==sizeof(mxInt32))
 
 		  static constexpr mxClassID mxClass = mxINT64_CLASS;
-		  static constexpr mxInt64* (*GetPr)(const mxArray *pa) = &mxGetInt64s; //mxDouble *mxGetDoubles(const mxArray *pa);
-		  static constexpr int(*SetPr)(mxArray *pa, mxInt64 *dt) = &mxSetInt64s;//int mxSetDoubles(mxArray *pa, mxDouble *dt);
+		  static constexpr mxInt64* (*GetPr)(const mxArray *pa) = &mxGetInt64s; //mxInt64 *mxGetInt64s(const mxArray *pa);
+		  static constexpr int(*SetPr)(mxArray *pa, mxInt64 *dt) = &mxSetInt64s;//int mxSetInt64(mxArray *pa, mxInt64 *dt);
 		  static constexpr mxComplexity Complexity = mxComplexity::mxREAL;
 	  };
 
@@ -125,6 +127,7 @@ namespace igl
         //   path  path to .mat file
         // Returns true on success, false on failure
         inline bool write(const std::string & path) const;
+
         // Load list of variables from .mat file
         //
         // Inputs:
@@ -223,6 +226,21 @@ namespace igl
         inline bool find_index( 
           const std::string & name,
           Eigen::PlainObjectBase<DerivedM>& M);
+
+
+		// Templates:
+ //   ScalarM  scalar type, e.g. double
+		template <typename ScalarM>
+		inline bool find(
+			const std::string & name,
+			 std::vector<std::vector<ScalarM> > & vM);
+		// Templates:
+		//   ScalarV  scalar type, e.g. double
+		template <typename ScalarV>
+		inline bool find(
+			const std::string & name,
+			 std::vector<ScalarV> & vV);
+
     };
   }
 }
@@ -234,7 +252,7 @@ namespace igl
 
 // IGL
 #include "igl/list_to_matrix.h"
-
+#include "igl/matrix_to_list.h"
 // MATLAB
 #include "mat.h"
 
@@ -265,7 +283,7 @@ inline void igl::matlab::MatlabWorkspace::clear()
 inline bool igl::matlab::MatlabWorkspace::write(const std::string & path) const
 {
   using namespace std;
-  MATFile * mat_file = matOpen(path.c_str(), "w");
+  MATFile * mat_file = matOpen(path.c_str(), "w7.3"); //w7.3 allows larger files
   if(mat_file == NULL)
   {
     fprintf(stderr,"Error opening file %s\n",path.c_str());
@@ -376,7 +394,7 @@ inline igl::matlab::MatlabWorkspace& igl::matlab::MatlabWorkspace::save(
   // Use Eigen's map and cast to copy
 
 
-  Eigen::Map< Eigen::Matrix<Minfo::type,Eigen::Dynamic,Eigen::Dynamic> >
+  Eigen::Map< Eigen::Matrix<typename Minfo::type,Eigen::Dynamic,Eigen::Dynamic> >
     map(reinterpret_cast<typename Minfo::type*>(Minfo::GetPr(mx_data) ),m,n);
   map = M.template cast<Minfo::type>();
   return *this;
@@ -436,7 +454,7 @@ inline igl::matlab::MatlabWorkspace& igl::matlab::MatlabWorkspace::save(
   const std::vector<std::vector<ScalarM> > & vM,
   const std::string & name)
 {
-  Eigen::MatrixXd M;
+	Eigen::Matrix<ScalarM, Eigen::Dynamic, Eigen::Dynamic> M;
   list_to_matrix(vM,M);
   return this->save(M,name);
 }
@@ -446,7 +464,7 @@ inline igl::matlab::MatlabWorkspace& igl::matlab::MatlabWorkspace::save(
   const std::vector<ScalarV> & vV,
   const std::string & name)
 {
-  Eigen::MatrixXd V;
+	Eigen::Matrix<ScalarV, Eigen::Dynamic, Eigen::Dynamic> V;
   list_to_matrix(vV,V);
   return this->save(V,name);
 }
@@ -510,7 +528,7 @@ inline bool igl::matlab::MatlabWorkspace::find(
   Eigen::PlainObjectBase<DerivedM>& M)
 {
   using namespace std;
-  using Minfo = traits < DerivedM::Scalar > ;
+  using Minfo = traits < typename DerivedM::Scalar > ;
 
 
   const size_t i = std::distance(names.begin(), std::find(names.begin(), names.end(), name));
@@ -539,7 +557,7 @@ inline bool igl::matlab::MatlabWorkspace::find(
   // Use Eigen's map and cast to copy
   M = Eigen::Map< Eigen::Matrix<typename Minfo::type, Eigen::Dynamic, Eigen::Dynamic> >
 	  (reinterpret_cast<typename Minfo::type*>(Minfo::GetPr(mx_data)), M.rows(), M.cols());
-  M.cast<typename DerivedM::Scalar>();
+  M.template cast<typename DerivedM::Scalar>();
   return true;
 }
 
@@ -688,6 +706,33 @@ inline bool igl::matlab::MatlabWorkspace::find_index(
   M.array() -= 1;
   return true;
 }
+
+
+template <typename ScalarM>
+inline bool igl::matlab::MatlabWorkspace::find(
+	const std::string & name,
+	 std::vector<std::vector<ScalarM> > & vM)
+{
+	Eigen::Matrix<ScalarM, Eigen::Dynamic, Eigen::Dynamic> M;
+	bool res= this->find(name,M);
+	matrix_to_list(M, vM);
+
+	return res;
+}
+
+template <typename ScalarV>
+inline bool igl::matlab::MatlabWorkspace::find(
+	const std::string & name,
+	 std::vector<ScalarV> & vV)
+{
+	Eigen::Matrix<ScalarV, Eigen::Dynamic, Eigen::Dynamic> V;
+	//Eigen::MatrixXd V;
+	bool res = this->find(name,V);
+	matrix_to_list(V, vV);
+
+	return res;
+}
+
 
 
 //template <typename Data>
