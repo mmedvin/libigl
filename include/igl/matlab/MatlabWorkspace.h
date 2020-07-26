@@ -60,8 +60,24 @@ namespace igl
 		  static constexpr mxComplexity Complexity = mxComplexity::mxREAL;
 	  };
 
+	  template<typename T=long, bool Enable=false>
+	  struct MyLong;
+
+	  template<typename T>
+	  struct MyLong<T,sizeof(long)==sizeof(int)>
+
+	  {
+		  typedef int type;
+	  };
+
+	  template<typename T>
+	  struct MyLong<T,sizeof(long) == sizeof(long long)>
+	  {
+		  typedef int type;
+	  };
+
 	  template<>
-	  struct traits<long> : traits<int>
+	  struct traits<long> : traits<typename MyLong<long>::type>
 	  {
 		  typedef long  type;
 
