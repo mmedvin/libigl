@@ -410,7 +410,7 @@ inline igl::matlab::MatlabWorkspace& igl::matlab::MatlabWorkspace::save(
 
   Eigen::Map< Eigen::Matrix<typename Minfo::type,Eigen::Dynamic,Eigen::Dynamic> >
     map(reinterpret_cast<typename Minfo::type*>(Minfo::GetPr(mx_data) ),m,n);
-  map = M.template cast<Minfo::type>();
+  map = M.template cast<typename Minfo::type>();
   return *this;
 }
 
